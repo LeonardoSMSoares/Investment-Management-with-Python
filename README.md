@@ -5,7 +5,7 @@ The Data Science and Machine Learning for Asset Management Specialization
 
 Course 01 - Introduction to Portfolio Construction and Analysis with Python
 
-week 1 - Analysing returns/n
+week 1 - Analysing returns//
 week 2 - An Introduction to Portfolio Optimization//
 week 3 - Beyond Diversification//
 week 4 - Introduction to Asset-Liability Management//
