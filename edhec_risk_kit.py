@@ -3,6 +3,42 @@ import pandas as pd
 import scipy.stats
 from scipy.stats import norm
 
+
+
+def annualize_rets(r, periods_per_year):
+    """
+    Annualizes a set of returns
+    We should infer the periods per year
+    but that is currently left as an exercise
+    to the reader :-)
+    """
+    compounded_growth = (1+r).prod()
+    n_periods = r.shape[0]
+    return compounded_growth**(periods_per_year/n_periods)-1
+
+
+def annualize_vol(r, periods_per_year):
+    """
+    Annualizes the vol of a set of returns
+    We should infer the periods per year
+    but that is currently left as an exercise
+    to the reader :-)
+    """
+    return r.std()*(periods_per_year**0.5)
+
+def cvar_historic(r, level=5):
+    """
+    Computes the Conditiona VaR of Series or DataFrame
+    """
+    if isinstance(r, pd.Series):
+        is_beyond = r <= -var_historic(r,level=level)
+        return -r[is_beyond].mean()
+    elif isinstance(r, pd.DataFrame):
+        return r.aggregate(cvar_historic,level=level)
+    else:
+        raise TypeError("Expected r to be a Series or DataFrame")
+        
+
 def drawdown(return_series: pd.Series):
     """Takes a time series of asset returns.
        returns a DataFrame with columns for
@@ -41,29 +77,14 @@ def get_hfi_returns():
     return hfi
 
 
-def skewness(r):
+def get_ind_returns():
     """
-    Alternative to scipy.stats.skew()
-    Computes the skewness of the supplied Series or DataFrame
-    Returns a float or a Series
+    Load and format the Ken French 30 Industry Portfolios Value Weighted Monthly Returns
     """
-    demeaned_r = r - r.mean()
-    # use the population standard deviation, so set dof=0
-    sigma_r = r.std(ddof=0)
-    exp = (demeaned_r**3).mean()
-    return exp/sigma_r**3
-
-def kurtosis(r):
-    """
-    Alternative to scipy.stats.kurtosis()
-    Computes the kurtosis of the supplied Series or DataFrame
-    Returns a float or a Series
-    """
-    demeaned_r = r - r.mean()
-    # use the population standard deviation, so set dof=0
-    sigma_r = r.std(ddof=0)
-    exp = (demeaned_r**4).mean()
-    return exp/sigma_r**4
+    ind = pd.read_csv("data/ind30_m_vw_rets.csv", header=0, index_col=0)/100
+    ind.index = pd.to_datetime(ind.index, format="%Y%m").to_period('M')
+    ind.columns = ind.columns.str.strip()
+    return ind
 
 
 def is_normal(r, level=0.01):
@@ -78,7 +99,52 @@ def is_normal(r, level=0.01):
         statistic, p_value = scipy.stats.jarque_bera(r)
         return p_value > level
     
-    
+
+def kurtosis(r):
+    """
+    Alternative to scipy.stats.kurtosis()
+    Computes the kurtosis of the supplied Series or DataFrame
+    Returns a float or a Series
+    """
+    demeaned_r = r - r.mean()
+    # use the population standard deviation, so set dof=0
+    sigma_r = r.std(ddof=0)
+    exp = (demeaned_r**4).mean()
+    return exp/sigma_r**4
+
+
+def plot_ef2(n_points, er, cov, style=".-"):
+    """
+    Plots the 2-asset efficient frontier
+    """
+    if er.shape[0] != 2 or er.shape[0] != 2:
+        raise ValueError("plot_ef2 can only plot 2-asset frontiers")
+    weights = [np.array([w, 1-w]) for w in np.linspace(0, 1, n_points)]
+    rets = [portfolio_return(w, er) for w in weights]
+    vols = [portfolio_vol(w, cov) for w in weights]
+    ef = pd.DataFrame({
+        "Returns": rets, 
+        "Volatility": vols
+    })
+    return ef.plot.line(x="Volatility", y="Returns", style=style)
+
+
+def portfolio_return(weights, returns):
+    """
+    Computes the return on a portfolio from constituent returns and weights
+    weights are a numpy array or Nx1 matrix and returns are a numpy array or Nx1 matrix
+    """
+    return weights.T @ returns
+
+
+def portfolio_vol(weights, covmat):
+    """
+    Computes the vol of a portfolio from a covariance matrix and constituent weights
+    weights are a numpy array or N x 1 maxtrix and covmat is an N x N matrix
+    """
+    return (weights.T @ covmat @ weights)**0.5
+
+
 def semideviation(r):
     """
     Returns the semideviation aka negative semideviation of r
@@ -88,20 +154,31 @@ def semideviation(r):
     return r[is_negative].std(ddof=0)
 
 
-def var_historic(r, level=5):
+def sharpe_ratio(r, riskfree_rate, periods_per_year):
     """
-    Returns the historic Value at Risk at a specified level
-    i.e. returns the number such that "level" percent of the returns
-    fall below that number, and the (100-level) percent are above
+    Computes the annualized sharpe ratio of a set of returns
     """
-    if isinstance(r, pd.DataFrame):
-        return r.aggregate(var_historic, level=level)
-    elif isinstance(r, pd.Series):
-        return -np.percentile(r, level)
-    else:
-        raise TypeError("Expected r to be a Series or DataFrame")
-        
-        
+    # convert the annual riskfree rate to per period
+    rf_per_period = (1+riskfree_rate)**(1/periods_per_year)-1
+    excess_ret = r - rf_per_period
+    ann_ex_ret = annualize_rets(excess_ret, periods_per_year)
+    ann_vol = annualize_vol(r, periods_per_year)
+    return ann_ex_ret/ann_vol
+
+
+def skewness(r):
+    """
+    Alternative to scipy.stats.skew()
+    Computes the skewness of the supplied Series or DataFrame
+    Returns a float or a Series
+    """
+    demeaned_r = r - r.mean()
+    # use the population standard deviation, so set dof=0
+    sigma_r = r.std(ddof=0)
+    exp = (demeaned_r**3).mean()
+    return exp/sigma_r**3
+
+                
 def var_gaussian(r, level=5, modified=False):
     """
     Returns the Parametric Gauusian VaR of a Series or DataFrame
@@ -123,17 +200,18 @@ def var_gaussian(r, level=5, modified=False):
     return -(r.mean() + z*r.std(ddof=0))
 
 
-def cvar_historic(r, level=5):
+def var_historic(r, level=5):
     """
-    Computes the Conditiona VaR of Series or DataFrame
+    Returns the historic Value at Risk at a specified level
+    i.e. returns the number such that "level" percent of the returns
+    fall below that number, and the (100-level) percent are above
     """
-    if isinstance(r, pd.Series):
-        is_beyond = r <= -var_historic(r,level=level)
-        return -r[is_beyond].mean()
-    elif isinstance(r, pd.DataFrame):
-        return r.aggregate(cvar_historic,level=level)
+    if isinstance(r, pd.DataFrame):
+        return r.aggregate(var_historic, level=level)
+    elif isinstance(r, pd.Series):
+        return -np.percentile(r, level)
     else:
         raise TypeError("Expected r to be a Series or DataFrame")
-        
-               
-        
+
+
+   
