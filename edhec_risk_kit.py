@@ -2,11 +2,9 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 import matplotlib.pyplot as plt
-import ipywidgets as widgets
 
 from scipy.stats import norm
 from scipy.optimize import minimize
-from IPython.display import display
 
 
 
@@ -66,6 +64,20 @@ def drawdown(return_series: pd.Series):
     return pd.DataFrame({"Wealth": wealth_index, 
                          "Previous Peak": previous_peaks, 
                          "Drawdown": drawdowns})
+
+
+def discount(t, r):
+    """
+    Compute the price of a pure discount bond that pays $1 at time t where t is in years and r is the annual interest rate
+    """
+    return (1+r)**(-t)
+
+
+def funding_ratio(assets, liabilities, r):
+    """
+    Computes the funding ratio of a series of liabilities, based on an interest rate and current value of assets
+    """
+    return assets/pv(liabilities, r)
 
     
 def gbm(n_years = 10, n_scenarios=1000, mu=0.07, sigma=0.15, steps_per_year=12, s_0=100.0, prices=True):
@@ -324,6 +336,15 @@ def portfolio_vol(weights, covmat):
     weights are a numpy array or N x 1 maxtrix and covmat is an N x N matrix
     """
     return (weights.T @ covmat @ weights)**0.5
+
+
+def pv(l, r):
+    """
+    Compute the present value of a list of liabilities given by the time (as an index) and amounts
+    """
+    dates = l.index
+    discounts = discount(dates, r)
+    return (discounts*l).sum()
 
 
 def run_cppi(risky_r, safe_r=None, m=3, start=1000, floor=0.8, riskfree_rate=0.03, drawdown=None):
